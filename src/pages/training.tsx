@@ -102,10 +102,15 @@ export default function TrainingPage() {
 
             // Parse the error to understand the shape mismatch
             let targetShape = 1; // Default to 1 for regression
-            if (problemType === "classification") {
+            if (problemType === "classification" && dataset) {
                 // For classification, determine number of unique classes
                 const uniqueClasses = new Set(dataset.ys.flat());
                 targetShape = uniqueClasses.size;
+
+                console.log('Classification autofix: detected classes:', {
+                    uniqueClasses: Array.from(uniqueClasses).sort(),
+                    targetShape
+                });
             }
 
             // Update the last layer of the model to match the target shape
@@ -154,12 +159,11 @@ export default function TrainingPage() {
                         return layerConfig;
                     }),
                     learningRate: learningRate,
+                    optimizer: optimizer.toLowerCase(),
                     loss: problemType === "classification" ?
                         (targetShape > 2 ? 'sparseCategoricalCrossentropy' : 'binaryCrossentropy') : 'meanSquaredError',
                     metrics: problemType === "classification" ? ['accuracy'] : ['mae']
-                };
-
-                setModelConfig(fixedModelConfig);
+                }; setModelConfig(fixedModelConfig);
 
                 console.log('Autofix applied: Model configuration updated with corrected shapes');
             }
@@ -200,7 +204,7 @@ export default function TrainingPage() {
                 featureColumns.includes('x') && featureColumns.includes('y') &&
                 targetColumn === 'class';
 
-            let validData;
+            let validData: Array<{ x: number; y: number; class?: number }>;
             if (is2DClassification) {
                 // For 2D classification, use x,y coordinates and include class info
                 validData = data
@@ -209,7 +213,7 @@ export default function TrainingPage() {
                         y: Number(row['y']),
                         class: Number(row['class'])
                     }))
-                    .filter(point => !isNaN(point.x) && !isNaN(point.y) && !isNaN(point.class));
+                    .filter(point => !isNaN(point.x) && !isNaN(point.y) && !isNaN(point.class!));
             } else {
                 // For 1D problems, use traditional mapping
                 const featureColumn = featureColumns[0];
@@ -222,14 +226,25 @@ export default function TrainingPage() {
             }
 
             if (validData.length > 0) {
-                const xs = validData.map(d => [d.x]);
-                const ys = is2DClassification ? validData.map(d => [d.y]) : validData.map(d => [d.y]);
+                let xs, ys;
+
+                if (is2DClassification) {
+                    // For 2D classification, features are [x, y] coordinates
+                    xs = validData.map(d => [d.x, d.y]);
+                    ys = validData.map(d => [d.class!]); // Non-null assertion since we filtered out NaN values
+                } else {
+                    // For 1D problems, single feature
+                    xs = validData.map(d => [d.x]);
+                    ys = validData.map(d => [d.y]);
+                }
 
                 console.log('Setting training dataset:', {
                     validDataLength: validData.length,
                     xsLength: xs.length,
                     ysLength: ys.length,
-                    is2DClassification
+                    is2DClassification,
+                    sampleXs: xs.slice(0, 3),
+                    sampleYs: ys.slice(0, 3)
                 });
 
                 setDataset(xs, ys);
@@ -280,6 +295,18 @@ export default function TrainingPage() {
     // Sync model layers to training configuration  
     useEffect(() => {
         if (layers && layers.length > 0 && dataset) {
+            // Determine the number of classes for classification problems
+            let numClasses = 1;
+            if (problemType === "classification") {
+                const uniqueClasses = new Set(dataset.ys.flat());
+                numClasses = uniqueClasses.size;
+
+                console.log('Classification model sync: detected classes:', {
+                    uniqueClasses: Array.from(uniqueClasses).sort(),
+                    numClasses
+                });
+            }
+
             // Convert hyperparameters layers to worker format
             const modelLayers = layers.map((layer, index) => {
                 const layerConfig: any = {
@@ -289,6 +316,16 @@ export default function TrainingPage() {
                 if (layer.type === "Dense") {
                     layerConfig.units = layer.units || 64;
                     layerConfig.activation = layer.activation?.toLowerCase() || 'relu';
+
+                    // For the last layer in classification, ensure correct output shape and activation
+                    if (index === layers.length - 1 && problemType === "classification") {
+                        layerConfig.units = numClasses;
+                        if (numClasses === 2) {
+                            layerConfig.activation = 'sigmoid';
+                        } else if (numClasses > 2) {
+                            layerConfig.activation = 'softmax';
+                        }
+                    }
 
                     // Add input shape for first layer
                     if (index === 0 && dataset.xs && dataset.xs[0]) {
@@ -302,7 +339,9 @@ export default function TrainingPage() {
             const modelConfig = {
                 layers: modelLayers,
                 learningRate: learningRate,
-                loss: problemType === "classification" ? 'sparseCategoricalCrossentropy' : 'meanSquaredError',
+                optimizer: optimizer.toLowerCase(),
+                loss: problemType === "classification" ?
+                    (numClasses === 2 ? 'binaryCrossentropy' : 'sparseCategoricalCrossentropy') : 'meanSquaredError',
                 metrics: problemType === "classification" ? ['accuracy'] : ['mae']
             };
 
@@ -311,7 +350,8 @@ export default function TrainingPage() {
             console.log('Synced model layers to training config:', {
                 layersCount: modelLayers.length,
                 modelConfig,
-                problemType
+                problemType,
+                numClasses
             });
         }
     }, [layers, learningRate, problemType, dataset, setModelConfig]);
@@ -381,12 +421,21 @@ export default function TrainingPage() {
     });
 
     // Transform store predictions to match component expectations
-    const transformedPredictions = modelPredictions.map(pred => ({
-        x: pred.input,
-        y: pred.prediction,
-        prediction: pred.prediction,
-        actual: pred.actual
-    }));
+    const transformedPredictions = modelPredictions.map(pred => {
+        let predictionValue = pred.prediction;
+
+        // For classification, round predictions to get class labels
+        if (problemType === "classification") {
+            predictionValue = Math.round(pred.prediction);
+        }
+
+        return {
+            x: pred.input,
+            y: predictionValue,
+            prediction: predictionValue,
+            actual: pred.actual
+        };
+    });
 
     // Debug log to check if predictions are being received
     console.log('Model predictions count:', modelPredictions.length, 'Transformed:', transformedPredictions.length);

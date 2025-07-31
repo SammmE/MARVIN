@@ -276,8 +276,26 @@ async function createModel(modelConfig: any): Promise<tf.Sequential> {
     });
 
     // Compile model
+    let optimizer;
+    const optimizerType = (modelConfig.optimizer || 'adam').toLowerCase();
+    switch (optimizerType) {
+        case 'sgd':
+            optimizer = tf.train.sgd(modelConfig.learningRate);
+            break;
+        case 'rmsprop':
+            optimizer = tf.train.rmsprop(modelConfig.learningRate);
+            break;
+        case 'adagrad':
+            optimizer = tf.train.adagrad(modelConfig.learningRate);
+            break;
+        case 'adam':
+        default:
+            optimizer = tf.train.adam(modelConfig.learningRate);
+            break;
+    }
+    
     model.compile({
-        optimizer: tf.train.adam(modelConfig.learningRate),
+        optimizer,
         loss: modelConfig.loss || 'meanSquaredError',
         metrics: modelConfig.metrics || ['mae']
     });
