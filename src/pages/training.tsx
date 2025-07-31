@@ -5,10 +5,13 @@ import { ActivationPanelGrid } from "../components/activation-mini-panels";
 import { TrainingDataVisualization } from "../components/training-data-visualization";
 import { useTrainingStore } from "../lib/training-store";
 import { useDataStore } from "../lib/data-store";
+import { useHyperparametersStore } from "../lib/hyperparameters-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { AlertCircle, Brain, BarChart3, Activity } from "lucide-react";
+import { Button } from "../components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { AlertCircle, Brain, BarChart3, Activity, Wrench } from "lucide-react";
 
 // Generate sample training data
 const generateSampleData = (problemType: "regression" | "classification", numPoints: number = 100) => {
@@ -45,6 +48,8 @@ export default function TrainingPage() {
         trainingConfig,
         dataset,
         worker,
+        lastError,
+        errorType,
 
         // Actions
         setSpeed,
@@ -56,6 +61,9 @@ export default function TrainingPage() {
         stepEpoch,
         scrubToEpoch,
         setDataset,
+        setTrainingConfig,
+        setModelConfig,
+        clearError,
         initializeWorker,
         disposeWorker,
     } = useTrainingStore();
@@ -63,7 +71,104 @@ export default function TrainingPage() {
     // Get data from the data store
     const dataStore = useDataStore();
 
+    // Get hyperparameters from the hyperparameters store
+    const {
+        epochs,
+        learningRate,
+        optimizer,
+        batchSize,
+        customBatchSize,
+        layers,
+        updateLayer,
+    } = useHyperparametersStore();
+
     const [problemType, setProblemType] = useState<"regression" | "classification">("regression");
+    const [showErrorDialog, setShowErrorDialog] = useState(false);
+
+    // Show error dialog when an error occurs
+    useEffect(() => {
+        if (lastError && errorType) {
+            setShowErrorDialog(true);
+        }
+    }, [lastError, errorType]);
+
+    // Autofix function for shape mismatches
+    const handleAutofix = () => {
+        if (errorType === 'shape_mismatch' && dataset) {
+            console.log('Applying autofix for shape mismatch...');
+
+            // Extract expected and actual shapes from error message
+            const errorMessage = lastError || '';
+
+            // Parse the error to understand the shape mismatch
+            let targetShape = 1; // Default to 1 for regression
+            if (problemType === "classification") {
+                // For classification, determine number of unique classes
+                const uniqueClasses = new Set(dataset.ys.flat());
+                targetShape = uniqueClasses.size;
+            }
+
+            // Update the last layer of the model to match the target shape
+            const updatedLayers = [...layers];
+            if (updatedLayers.length > 0) {
+                const lastLayerIndex = updatedLayers.length - 1;
+                const lastLayer = { ...updatedLayers[lastLayerIndex] };
+                lastLayer.units = targetShape;
+                lastLayer.activation = problemType === "classification" ?
+                    (targetShape > 2 ? "Softmax" : "Sigmoid") : "ReLU";
+
+                // Update the hyperparameters store
+                updateLayer(lastLayer.id, {
+                    units: targetShape,
+                    activation: lastLayer.activation
+                });
+
+                updatedLayers[lastLayerIndex] = lastLayer;
+
+                console.log('Autofix: Updated last layer in hyperparameters store:', {
+                    layerId: lastLayer.id,
+                    units: targetShape,
+                    activation: lastLayer.activation,
+                    problemType
+                });
+
+                // Update the hyperparameters store with the fixed layers
+                // Note: We need to access the setter from hyperparameters store
+                // For now, let's create a new model config directly
+                const fixedModelConfig = {
+                    layers: updatedLayers.map((layer, index) => {
+                        const layerConfig: any = {
+                            type: layer.type.toLowerCase(),
+                        };
+
+                        if (layer.type === "Dense") {
+                            layerConfig.units = layer.units || 64;
+                            layerConfig.activation = layer.activation?.toLowerCase() || 'relu';
+
+                            // Add input shape for first layer
+                            if (index === 0 && dataset.xs && dataset.xs[0]) {
+                                layerConfig.inputShape = [dataset.xs[0].length];
+                            }
+                        }
+
+                        return layerConfig;
+                    }),
+                    learningRate: learningRate,
+                    loss: problemType === "classification" ?
+                        (targetShape > 2 ? 'sparseCategoricalCrossentropy' : 'binaryCrossentropy') : 'meanSquaredError',
+                    metrics: problemType === "classification" ? ['accuracy'] : ['mae']
+                };
+
+                setModelConfig(fixedModelConfig);
+
+                console.log('Autofix applied: Model configuration updated with corrected shapes');
+            }
+        }
+
+        // Clear the error and close dialog
+        clearError();
+        setShowErrorDialog(false);
+    };
 
     // Generate initial sample data if no data exists
     useEffect(() => {
@@ -80,42 +185,65 @@ export default function TrainingPage() {
     useEffect(() => {
         if (dataStore.dataset && dataStore.selectedFeatures.length > 0 && dataStore.selectedTarget) {
             const data = dataStore.dataset.data;
-            const featureColumn = dataStore.selectedFeatures[0];
+            const featureColumns = dataStore.selectedFeatures;
             const targetColumn = dataStore.selectedTarget;
 
             console.log('Transferring data to training:', {
                 dataLength: data.length,
-                featureColumn,
+                featureColumns,
                 targetColumn,
                 sampleRow: data[0]
             });
 
-            // Convert to training format
-            const validData = data
-                .map(row => ({
-                    x: Number(row[featureColumn]),
-                    y: Number(row[targetColumn])
-                }))
-                .filter(point => !isNaN(point.x) && !isNaN(point.y));
+            // Check if this is 2D classification data (x, y coordinates + class)
+            const is2DClassification = featureColumns.length === 2 &&
+                featureColumns.includes('x') && featureColumns.includes('y') &&
+                targetColumn === 'class';
+
+            let validData;
+            if (is2DClassification) {
+                // For 2D classification, use x,y coordinates and include class info
+                validData = data
+                    .map(row => ({
+                        x: Number(row['x']),
+                        y: Number(row['y']),
+                        class: Number(row['class'])
+                    }))
+                    .filter(point => !isNaN(point.x) && !isNaN(point.y) && !isNaN(point.class));
+            } else {
+                // For 1D problems, use traditional mapping
+                const featureColumn = featureColumns[0];
+                validData = data
+                    .map(row => ({
+                        x: Number(row[featureColumn]),
+                        y: Number(row[targetColumn])
+                    }))
+                    .filter(point => !isNaN(point.x) && !isNaN(point.y));
+            }
 
             if (validData.length > 0) {
                 const xs = validData.map(d => [d.x]);
-                const ys = validData.map(d => [d.y]);
+                const ys = is2DClassification ? validData.map(d => [d.y]) : validData.map(d => [d.y]);
 
                 console.log('Setting training dataset:', {
                     validDataLength: validData.length,
                     xsLength: xs.length,
-                    ysLength: ys.length
+                    ysLength: ys.length,
+                    is2DClassification
                 });
 
                 setDataset(xs, ys);
 
                 // Determine problem type
-                const uniqueTargets = new Set(validData.map(d => d.y));
-                if (uniqueTargets.size <= 10 && Array.from(uniqueTargets).every(val => Number.isInteger(val))) {
+                if (is2DClassification) {
                     setProblemType("classification");
                 } else {
-                    setProblemType("regression");
+                    const uniqueTargets = new Set(validData.map(d => d.y));
+                    if (uniqueTargets.size <= 10 && Array.from(uniqueTargets).every(val => Number.isInteger(val))) {
+                        setProblemType("classification");
+                    } else {
+                        setProblemType("regression");
+                    }
                 }
             }
         }
@@ -129,6 +257,64 @@ export default function TrainingPage() {
             disposeWorker();
         };
     }, [initializeWorker, disposeWorker]);
+
+    // Sync hyperparameters to training configuration
+    useEffect(() => {
+        const actualBatchSize = batchSize === "Custom" ? customBatchSize || 32 : batchSize;
+
+        setTrainingConfig({
+            epochs,
+            learningRate,
+            optimizer: optimizer.toLowerCase(),
+            batchSize: actualBatchSize,
+        });
+
+        console.log('Synced hyperparameters to training config:', {
+            epochs,
+            learningRate,
+            optimizer: optimizer.toLowerCase(),
+            batchSize: actualBatchSize,
+        });
+    }, [epochs, learningRate, optimizer, batchSize, customBatchSize, setTrainingConfig]);
+
+    // Sync model layers to training configuration  
+    useEffect(() => {
+        if (layers && layers.length > 0 && dataset) {
+            // Convert hyperparameters layers to worker format
+            const modelLayers = layers.map((layer, index) => {
+                const layerConfig: any = {
+                    type: layer.type.toLowerCase(),
+                };
+
+                if (layer.type === "Dense") {
+                    layerConfig.units = layer.units || 64;
+                    layerConfig.activation = layer.activation?.toLowerCase() || 'relu';
+
+                    // Add input shape for first layer
+                    if (index === 0 && dataset.xs && dataset.xs[0]) {
+                        layerConfig.inputShape = [dataset.xs[0].length];
+                    }
+                }
+
+                return layerConfig;
+            });
+
+            const modelConfig = {
+                layers: modelLayers,
+                learningRate: learningRate,
+                loss: problemType === "classification" ? 'sparseCategoricalCrossentropy' : 'meanSquaredError',
+                metrics: problemType === "classification" ? ['accuracy'] : ['mae']
+            };
+
+            setModelConfig(modelConfig);
+
+            console.log('Synced model layers to training config:', {
+                layersCount: modelLayers.length,
+                modelConfig,
+                problemType
+            });
+        }
+    }, [layers, learningRate, problemType, dataset, setModelConfig]);
 
     // Generate fallback sample data if no data exists
     useEffect(() => {
@@ -152,22 +338,40 @@ export default function TrainingPage() {
             return [];
         }
 
-        const data = dataset.xs.map((x, i) => ({
-            x: x[0],
-            y: dataset.ys[i][0]
-        }));
+        // Check if this is 2D classification data
+        const is2DClassification = dataStore.selectedFeatures?.length === 2 &&
+            dataStore.selectedFeatures.includes('x') && dataStore.selectedFeatures.includes('y') &&
+            dataStore.selectedTarget === 'class';
+
+        let data;
+        if (is2DClassification && dataStore.dataset) {
+            // For 2D classification, include class information
+            data = dataset.xs.map((x, i) => {
+                const originalRow = dataStore.dataset!.data[i];
+                return {
+                    x: x[0],
+                    y: dataset.ys[i][0],
+                    class: Number(originalRow['class'])
+                };
+            });
+        } else {
+            // Traditional mapping
+            data = dataset.xs.map((x, i) => ({
+                x: x[0],
+                y: dataset.ys[i][0]
+            }));
+        }
 
         console.log('Training data prepared:', {
             datasetXsLength: dataset.xs.length,
             datasetYsLength: dataset.ys.length,
             trainingDataLength: data.length,
-            sampleData: data.slice(0, 3)
+            sampleData: data.slice(0, 3),
+            is2DClassification
         });
 
         return data;
-    }, [dataset]);
-
-    // Debug log to check if we have training data
+    }, [dataset, dataStore.selectedFeatures, dataStore.selectedTarget, dataStore.dataset]);    // Debug log to check if we have training data
     console.log('Training data state:', {
         hasDataset: !!dataset,
         datasetXsLength: dataset?.xs?.length || 0,
@@ -335,6 +539,52 @@ export default function TrainingPage() {
                     </div>
                 </TabsContent>
             </Tabs>
+
+            {/* Error Dialog */}
+            <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <AlertCircle className="h-5 w-5 text-red-500" />
+                            Training Error Detected
+                        </DialogTitle>
+                        <DialogDescription>
+                            {errorType === 'shape_mismatch'
+                                ? "A shape mismatch error occurred during training. This usually happens when the model's output layer doesn't match the target data shape."
+                                : "An error occurred during training."
+                            }
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="my-4">
+                        <div className="text-sm font-medium mb-2">Error Details:</div>
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-800 font-mono max-h-32 overflow-y-auto">
+                            {lastError}
+                        </div>
+                    </div>
+
+                    <DialogFooter className="flex gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                clearError();
+                                setShowErrorDialog(false);
+                            }}
+                        >
+                            Dismiss
+                        </Button>
+                        {errorType === 'shape_mismatch' && (
+                            <Button
+                                onClick={handleAutofix}
+                                className="flex items-center gap-2"
+                            >
+                                <Wrench className="h-4 w-4" />
+                                Auto-Fix Model
+                            </Button>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

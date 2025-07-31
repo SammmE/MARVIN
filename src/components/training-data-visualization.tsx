@@ -177,10 +177,8 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                                 <YAxis
                                     type="number"
                                     dataKey="y"
-                                    name="Class"
-                                    domain={[-0.1, 1.1]}
-                                    tickCount={3}
-                                    tickFormatter={(value) => value === 0 ? 'Class 0' : value === 1 ? 'Class 1' : ''}
+                                    name="Output"
+                                    domain={['dataMin - 0.1', 'dataMax + 0.1']}
                                 />
                                 <Tooltip
                                     content={({ active, payload }) => {
@@ -194,9 +192,6 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                                         return null;
                                     }}
                                 />
-
-                                {/* Decision boundary at 0.5 */}
-                                <ReferenceLine y={0.5} stroke="#64748b" strokeDasharray="5 5" />
 
                                 {/* Legend for classes */}
                                 {classGroups && <Legend />}
@@ -224,12 +219,30 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
 
                                 {/* Model predictions as crosses */}
                                 {modelPredictions.length > 0 && (
-                                    <Scatter
-                                        dataKey="prediction"
-                                        fill="#ef4444"
-                                        shape="cross"
-                                        name="Model Predictions"
-                                    />
+                                    classGroups ? (
+                                        // Show different colors for each predicted class
+                                        classGroups.map((classValue, index) => {
+                                            const predictionColor = COLORS[(index + 4) % COLORS.length]; // Offset colors to distinguish from training data
+                                            return (
+                                                <Scatter
+                                                    key={`prediction-class-${classValue}`}
+                                                    name={`Predicted Class ${classValue}`}
+                                                    data={chartData.filter(d => d.prediction === classValue)}
+                                                    fill={predictionColor}
+                                                    shape="cross"
+                                                    dataKey="prediction"
+                                                />
+                                            );
+                                        })
+                                    ) : (
+                                        // Single color for all predictions when not classification
+                                        <Scatter
+                                            dataKey="prediction"
+                                            fill="#ef4444"
+                                            shape="cross"
+                                            name="Model Predictions"
+                                        />
+                                    )
                                 )}
                             </ScatterChart>
                         )}
@@ -262,12 +275,29 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                         )}
 
                         {modelPredictions.length > 0 && (
-                            <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                                <span>
-                                    {problemType === "regression" ? "Regression Line" : "Predictions"}
-                                </span>
-                            </div>
+                            classGroups ? (
+                                // Show prediction legend for each class
+                                classGroups.map((classValue, index) => {
+                                    const predictionColor = COLORS[(index + 4) % COLORS.length];
+                                    const predictionCount = chartData.filter(d => d.prediction === classValue).length;
+                                    return predictionCount > 0 ? (
+                                        <div key={`pred-legend-${classValue}`} className="flex items-center gap-2">
+                                            <div className="w-3 h-3 flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: predictionColor }}>
+                                                ×
+                                            </div>
+                                            <span>Predicted Class {classValue} ({predictionCount})</span>
+                                        </div>
+                                    ) : null;
+                                })
+                            ) : (
+                                // Single prediction legend for non-classification
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                                    <span>
+                                        {problemType === "regression" ? "Regression Line" : "Predictions"}
+                                    </span>
+                                </div>
+                            )
                         )}
                     </div>
 

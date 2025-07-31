@@ -14,6 +14,10 @@ interface TrainingStore {
     currentBatch: number;
     totalBatches: number;
     
+    // Error handling
+    lastError: string | null;
+    errorType: 'shape_mismatch' | 'general' | null;
+    
     // Training data
     trainingMetrics: MetricData[];
     layerActivations: LayerActivationData[];
@@ -36,6 +40,19 @@ interface TrainingStore {
         validationSplit: number;
     };
     
+    // Model configuration
+    modelConfig: {
+        layers: Array<{
+            type: string;
+            units?: number;
+            activation?: string;
+            inputShape?: number[];
+        }>;
+        learningRate: number;
+        loss: string;
+        metrics: string[];
+    } | null;
+    
     // Dataset for training
     dataset: {
         xs: number[][];
@@ -46,6 +63,7 @@ interface TrainingStore {
     setTrainingState: (state: TrainingState) => void;
     setSpeed: (speed: TrainingSpeed) => void;
     setTrainingConfig: (config: Partial<TrainingStore['trainingConfig']>) => void;
+    setModelConfig: (config: TrainingStore['modelConfig']) => void;
     setDataset: (xs: number[][], ys: number[][]) => void;
     
     // Training controls
@@ -63,6 +81,10 @@ interface TrainingStore {
     updatePredictions: (predictions: Array<{index: number; prediction: number; input: number; actual: number}>) => void;
     clearMetrics: () => void;
     
+    // Error management
+    setError: (error: string, type: 'shape_mismatch' | 'general') => void;
+    clearError: () => void;
+    
     // Worker management
     initializeWorker: () => void;
     disposeWorker: () => void;
@@ -78,6 +100,8 @@ export const useTrainingStore = create<TrainingStore>()(
             totalEpochs: 100,
             currentBatch: 0,
             totalBatches: 0,
+            lastError: null,
+            errorType: null,
             trainingMetrics: [],
             layerActivations: [],
             modelPredictions: [],
@@ -89,24 +113,32 @@ export const useTrainingStore = create<TrainingStore>()(
                 optimizer: "adam",
                 validationSplit: 0.2,
             },
+            modelConfig: null,
             dataset: null,
 
             // Actions
             setTrainingState: (trainingState) => set({ trainingState }),
             setSpeed: (speed) => set({ speed }),
-            setTrainingConfig: (config) => set(state => ({
-                trainingConfig: { ...state.trainingConfig, ...config }
-            })),
+            setTrainingConfig: (config) => set(state => {
+                const newConfig = { ...state.trainingConfig, ...config };
+                return {
+                    trainingConfig: newConfig,
+                    // Update totalEpochs when epochs config changes
+                    totalEpochs: config.epochs !== undefined ? config.epochs : state.totalEpochs
+                };
+            }),
+            setModelConfig: (config) => set({ modelConfig: config }),
             setDataset: (xs, ys) => set({ dataset: { xs, ys } }),
 
             // Training controls
             startTraining: async () => {
-                const { dataset, trainingConfig, speed, trainingState, currentEpoch } = get();
+                const { dataset, trainingConfig, modelConfig, speed } = get();
                 
                 console.log("startTraining called", { 
                     hasDataset: !!dataset,
                     datasetSize: dataset ? dataset.xs.length : 0,
-                    config: trainingConfig 
+                    config: trainingConfig,
+                    hasModelConfig: !!modelConfig
                 });
                 
                 if (!dataset) {
@@ -144,20 +176,24 @@ export const useTrainingStore = create<TrainingStore>()(
                 });
 
                 console.log("Configuring worker...");
+                
+                // Use model config if available, otherwise use default
+                const finalModelConfig = modelConfig || {
+                    layers: [
+                        { type: 'dense', units: 64, activation: 'relu', inputShape: [dataset.xs[0].length] },
+                        { type: 'dense', units: 32, activation: 'relu' },
+                        { type: 'dense', units: dataset.ys[0].length, activation: 'linear' }
+                    ],
+                    learningRate: trainingConfig.learningRate,
+                    loss: 'meanSquaredError',
+                    metrics: ['mae']
+                };
+                
                 // Configure worker
                 worker.postMessage({
                     type: 'config',
                     payload: {
-                        modelConfig: {
-                            layers: [
-                                { type: 'dense', units: 64, activation: 'relu', inputShape: [dataset.xs[0].length] },
-                                { type: 'dense', units: 32, activation: 'relu' },
-                                { type: 'dense', units: dataset.ys[0].length, activation: 'linear' }
-                            ],
-                            learningRate: trainingConfig.learningRate,
-                            loss: 'meanSquaredError',
-                            metrics: ['mae']
-                        },
+                        modelConfig: finalModelConfig,
                         dataConfig: {
                             xs: dataset.xs,
                             ys: dataset.ys,
@@ -242,6 +278,10 @@ export const useTrainingStore = create<TrainingStore>()(
 
             clearMetrics: () => set({ trainingMetrics: [], layerActivations: [], modelPredictions: [] }),
 
+            // Error management
+            setError: (error, type) => set({ lastError: error, errorType: type }),
+            clearError: () => set({ lastError: null, errorType: null }),
+
             // Worker management
             initializeWorker: () => {
                 const state = get();
@@ -304,6 +344,14 @@ export const useTrainingStore = create<TrainingStore>()(
 
                             case 'error':
                                 console.error('Training error:', payload.error);
+                                
+                                // Detect shape mismatch errors
+                                const errorMessage = payload.error?.toString() || '';
+                                const isShapeMismatch = errorMessage.includes('shape') && 
+                                                      (errorMessage.includes('expected') || errorMessage.includes('target'));
+                                
+                                const errorType = isShapeMismatch ? 'shape_mismatch' : 'general';
+                                get().setError(errorMessage, errorType);
                                 set({ trainingState: "idle" });
                                 break;
                         }
