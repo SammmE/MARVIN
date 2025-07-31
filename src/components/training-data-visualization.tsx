@@ -30,7 +30,8 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
         modelPredictionsLength: modelPredictions.length,
         modelPredictions: modelPredictions.slice(0, 3), // Show first 3 for debugging
         problemType,
-        isTraining
+        isTraining,
+        sampleData: data.slice(0, 3) // Show first 3 data points
     });
 
     // Prepare data for visualization
@@ -104,10 +105,16 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                                     domain={['dataMin - 0.1', 'dataMax + 0.1']}
                                 />
                                 <Tooltip
-                                    formatter={(value, name) => [
-                                        typeof value === 'number' ? value.toFixed(3) : value,
-                                        name === 'y' ? 'Actual' : name === 'prediction' ? 'Predicted' : name
-                                    ]}
+                                    content={({ active, payload }) => {
+                                        if (active && payload && payload.length) {
+                                            return (
+                                                <div className="bg-white p-2 border border-gray-200 rounded shadow-lg">
+                                                    <p className="text-sm font-medium">Training Data Point</p>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    }}
                                 />
 
                                 {/* Actual data points */}
@@ -148,11 +155,16 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                                     tickFormatter={(value) => value === 0 ? 'Class 0' : value === 1 ? 'Class 1' : ''}
                                 />
                                 <Tooltip
-                                    formatter={(value, name) => [
-                                        name === 'y' ? ((value as number) > 0.5 ? 'Class 1' : 'Class 0') :
-                                            name === 'prediction' ? `${((value as number) * 100).toFixed(1)}%` : value,
-                                        name === 'y' ? 'True Class' : name === 'prediction' ? 'Prediction' : name
-                                    ]}
+                                    content={({ active, payload }) => {
+                                        if (active && payload && payload.length) {
+                                            return (
+                                                <div className="bg-white p-2 border border-gray-200 rounded shadow-lg">
+                                                    <p className="text-sm font-medium">Training Data</p>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    }}
                                 />
 
                                 {/* Decision boundary at 0.5 */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { TrainingControls } from "../components/training-controls";
 import { LiveMetricsChart } from "../components/live-metrics-chart";
 import { ActivationPanelGrid } from "../components/activation-mini-panels";
@@ -65,7 +65,18 @@ export default function TrainingPage() {
 
     const [problemType, setProblemType] = useState<"regression" | "classification">("regression");
 
-    // Transfer data when component mounts or when data store changes
+    // Generate initial sample data if no data exists
+    useEffect(() => {
+        console.log('Training page mounted, checking for data...');
+        console.log('DataStore dataset:', !!dataStore.dataset);
+        console.log('Training dataset:', !!dataset, 'size:', dataset?.xs?.length || 0);
+
+        // If we have no data at all, load a preset to get started
+        if (!dataStore.dataset && (!dataset || dataset.xs.length === 0)) {
+            console.log('No data found, loading sinusoid preset...');
+            dataStore.loadPreset('sinusoid');
+        }
+    }, []); // Empty dependency array to run only once on mount    // Transfer data when component mounts or when data store changes
     useEffect(() => {
         if (dataStore.dataset && dataStore.selectedFeatures.length > 0 && dataStore.selectedTarget) {
             const data = dataStore.dataset.data;
@@ -114,38 +125,47 @@ export default function TrainingPage() {
     useEffect(() => {
         initializeWorker();
 
-        // Only generate fallback sample data if no data store data exists
-        if (!dataStore.dataset && (!dataset || dataset.xs.length === 0)) {
-            const sampleData = generateSampleData(problemType, 100);
-            setDataset(
-                sampleData.map(d => [d.x]),
-                sampleData.map(d => [d.y])
-            );
-        }
-
         return () => {
             disposeWorker();
         };
-    }, [initializeWorker, disposeWorker, problemType, setDataset, dataset, dataStore.dataset]);
+    }, [initializeWorker, disposeWorker]);
 
-    // Generate new data when problem type changes, but only if no data exists
+    // Generate fallback sample data if no data exists
     useEffect(() => {
+        // Only generate sample data if no data store data exists and no training dataset exists
         if (!dataStore.dataset && (!dataset || dataset.xs.length === 0)) {
+            console.log('Generating sample data for problem type:', problemType);
             const sampleData = generateSampleData(problemType, 100);
             setDataset(
                 sampleData.map(d => [d.x]),
                 sampleData.map(d => [d.y])
             );
         }
-    }, [problemType, setDataset, dataset, dataStore.dataset]);
+    }, [problemType, dataStore.dataset, dataset?.xs?.length, setDataset]);
 
     const isTraining = trainingState === "training";
     const canStep = trainingState === "paused" || (trainingState === "idle" && speed === 0);
 
-    const trainingData = dataset ? dataset.xs.map((x, i) => ({
-        x: x[0],
-        y: dataset.ys[i][0]
-    })) : [];
+    const trainingData = useMemo(() => {
+        if (!dataset || !dataset.xs || !dataset.ys) {
+            console.log('No dataset available for training data');
+            return [];
+        }
+
+        const data = dataset.xs.map((x, i) => ({
+            x: x[0],
+            y: dataset.ys[i][0]
+        }));
+
+        console.log('Training data prepared:', {
+            datasetXsLength: dataset.xs.length,
+            datasetYsLength: dataset.ys.length,
+            trainingDataLength: data.length,
+            sampleData: data.slice(0, 3)
+        });
+
+        return data;
+    }, [dataset]);
 
     // Debug log to check if we have training data
     console.log('Training data state:', {

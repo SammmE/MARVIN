@@ -50,9 +50,9 @@ const generateSinusoid = (): Dataset => {
 	const data = Array.from({ length: 100 }, (_, i) => {
 		const x = i / 10;
 		const y = Math.sin(x) + (Math.random() - 0.5) * 0.5;
-		return { x: x, y: y, type: "sine" };
+		return { x: x, y: y };
 	});
-	return { data, columns: ["x", "y", "type"] };
+	return { data, columns: ["x", "y"] };
 };
 
 const generateSpiral = (): Dataset => {
