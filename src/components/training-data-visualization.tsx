@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ReferenceLine, ComposedChart } from "recharts";
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ReferenceLine, ComposedChart, Legend } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Activity, TrendingUp } from "lucide-react";
@@ -61,6 +61,34 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
 
         return sortedData;
     }, [data, modelPredictions]);
+
+    // Determine if we have classification data with distinct classes
+    const classGroups = useMemo(() => {
+        if (problemType === "classification") {
+            const uniqueClasses = Array.from(new Set(data.map(d => d.y)));
+            // Only treat as classes if we have <= 10 unique values AND they appear to be categorical
+            if (uniqueClasses.length <= 10 && uniqueClasses.every(val =>
+                typeof val === 'string' || Number.isInteger(val)
+            )) {
+                return uniqueClasses.sort();
+            }
+        }
+        return null;
+    }, [data, problemType]);
+
+    // Colors for different classes
+    const COLORS = [
+        "#3b82f6", // blue
+        "#ef4444", // red  
+        "#10b981", // green
+        "#f59e0b", // yellow
+        "#8b5cf6", // purple
+        "#06b6d4", // cyan
+        "#84cc16", // lime
+        "#f97316", // orange
+        "#ec4899", // pink
+        "#6b7280", // gray
+    ];
 
     return (
         <Card className="w-full">
@@ -170,12 +198,29 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                                 {/* Decision boundary at 0.5 */}
                                 <ReferenceLine y={0.5} stroke="#64748b" strokeDasharray="5 5" />
 
+                                {/* Legend for classes */}
+                                {classGroups && <Legend />}
+
                                 {/* Actual data points colored by class */}
-                                <Scatter
-                                    dataKey="y"
-                                    fill="#3b82f6"
-                                    name="Training Data"
-                                />
+                                {classGroups ? (
+                                    // Show different colors for each class
+                                    classGroups.map((classValue, index) => (
+                                        <Scatter
+                                            key={`class-${classValue}`}
+                                            name={`Class ${classValue}`}
+                                            data={chartData.filter(d => d.y === classValue)}
+                                            fill={COLORS[index % COLORS.length]}
+                                            dataKey="y"
+                                        />
+                                    ))
+                                ) : (
+                                    // Single color for all data points when not classification
+                                    <Scatter
+                                        dataKey="y"
+                                        fill="#3b82f6"
+                                        name="Training Data"
+                                    />
+                                )}
 
                                 {/* Model predictions as crosses */}
                                 {modelPredictions.length > 0 && (
@@ -194,10 +239,28 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                 {/* Legend and stats */}
                 <div className="mt-4 flex items-center justify-between text-sm">
                     <div className="flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                            <span>Training Data ({data.length} points)</span>
-                        </div>
+                        {classGroups ? (
+                            // Show class breakdown when we have classes
+                            classGroups.map((classValue, index) => {
+                                const classCount = data.filter(d => d.y === classValue).length;
+                                return (
+                                    <div key={`legend-${classValue}`} className="flex items-center gap-2">
+                                        <div
+                                            className="w-3 h-3 rounded-full"
+                                            style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                                        ></div>
+                                        <span>Class {classValue} ({classCount} points)</span>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            // Single entry for non-classification data
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                <span>Training Data ({data.length} points)</span>
+                            </div>
+                        )}
+
                         {modelPredictions.length > 0 && (
                             <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 bg-red-500 rounded-full"></div>

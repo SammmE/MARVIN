@@ -70,10 +70,17 @@ export function DataVisualization() {
         margin: { top: 20, right: 30, left: 20, bottom: 60 },
     };
 
-    // Prepare data groups if we have a target variable
-    const targetGroups = selectedTarget
-        ? Array.from(new Set(dataset.data.map((d) => d[selectedTarget])))
-        : null;
+    // Prepare data groups if we have a target variable AND it's categorical (classification)
+    const targetGroups = selectedTarget ? (() => {
+        const uniqueTargets = Array.from(new Set(dataset.data.map((d) => d[selectedTarget])));
+        // Only treat as classes if we have <= 10 unique values AND they appear to be categorical
+        if (uniqueTargets.length <= 10 && uniqueTargets.every(val =>
+            typeof val === 'string' || Number.isInteger(val)
+        )) {
+            return uniqueTargets;
+        }
+        return null; // Treat as regression/continuous data
+    })() : null;
 
     // Render the appropriate chart based on selected type
     const renderChart = () => {
@@ -114,12 +121,32 @@ export function DataVisualization() {
                         }}
                     />
 
-                    {/* Single scatter plot for all data points */}
-                    <Scatter
-                        dataKey={yAxis}
-                        fill="#3b82f6"
-                        name="Training Data"
-                    />
+                    {/* Show legend only when we have classes to distinguish */}
+                    {targetGroups && <Legend />}
+
+                    {/* Show data points with class distinction if target exists, otherwise single color */}
+                    {targetGroups ? (
+                        // If we have a target variable (classes), group by it with different colors
+                        targetGroups.map((group, index) => (
+                            <Scatter
+                                key={`scatter-${group}`}
+                                name={`${selectedTarget}: ${group}`}
+                                data={dataset.data.filter(
+                                    (d) => d[selectedTarget as string] === group,
+                                )}
+                                fill={COLORS[index % COLORS.length]}
+                                dataKey={yAxis}
+                                shape="circle"
+                            />
+                        ))
+                    ) : (
+                        // Single scatter plot for all data points when no classes
+                        <Scatter
+                            dataKey={yAxis}
+                            fill="#3b82f6"
+                            name="Training Data"
+                        />
+                    )}
 
                     {brushEnabled && (
                         <Brush
