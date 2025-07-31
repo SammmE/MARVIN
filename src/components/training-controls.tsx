@@ -4,7 +4,6 @@ import { Slider } from "./ui/slider";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Play, Pause, Square, SkipForward, StepForward } from "lucide-react";
-import { cn } from "../lib/utils";
 
 export type TrainingState = "idle" | "training" | "paused" | "stopped";
 export type TrainingSpeed = number; // 0 = manual, 1 = real-time, up to 10 = 10x speed
@@ -61,7 +60,6 @@ export const TrainingControls: React.FC<TrainingControlsProps> = ({
 
     // Use training metrics to determine actual completed epochs
     const completedEpochs = trainingMetrics.length;
-    const displayEpoch = Math.max(completedEpochs, 0);
 
     const handleSpeedChange = (value: number[]) => {
         onSpeedChange(value[0]);

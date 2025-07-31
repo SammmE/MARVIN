@@ -1,5 +1,4 @@
 import { useDataStore } from "@/lib/data-store";
-import type { ChartType } from "@/lib/data-store";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { ChartContainer } from "./ui/chart";
 import {

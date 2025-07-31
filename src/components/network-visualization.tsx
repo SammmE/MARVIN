@@ -21,7 +21,7 @@ import type {
 import { useModelStore, type LayerNode as LayerNodeType, type NeuronNode as NeuronNodeType } from "../lib/model-store";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
-import { ZoomIn, ZoomOut, Maximize, Minimize, Eye, EyeOff } from "lucide-react";
+import { Minimize, Eye, EyeOff } from "lucide-react";
 
 // Type definitions for node data
 interface LayerNodeData {
@@ -275,12 +275,9 @@ export const NetworkVisualization: React.FC<NetworkVisualizationProps> = ({
         edges,
         focusedLayerId,
         zoomLevel,
-        currentZoomMode,
         expandedLayers,
         setFocusedLayer,
-        setZoomMode,
         collapseAllLayers,
-        toggleLayerExpansion,
     } = useModelStore();
 
     // Convert store data to React Flow format

@@ -1,8 +1,8 @@
 import React from "react";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from "recharts";
+import { BarChart, Bar, ResponsiveContainer, Cell } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { Activity, TrendingUp, TrendingDown } from "lucide-react";
+import { Activity } from "lucide-react";
 
 export interface LayerActivationData {
     layerId: string;

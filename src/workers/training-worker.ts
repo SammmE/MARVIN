@@ -32,7 +32,6 @@ let model: tf.Sequential | null = null;
 let isTraining = false;
 let isPaused = false;
 let currentEpoch = 0;
-let currentBatch = 0;
 let trainingData: { xs: tf.Tensor; ys: tf.Tensor } | null = null;
 let validationData: { xs: tf.Tensor; ys: tf.Tensor } | null = null;
 let config: TrainingConfig | null = null;
@@ -47,8 +46,6 @@ async function trainStep(xs: tf.Tensor, ys: tf.Tensor, batchSize: number): Promi
         validationData: validationData ? [validationData.xs, validationData.ys] : undefined,
         callbacks: {
             onBatchEnd: async (batch, logs) => {
-                currentBatch = batch;
-                
                 // Send progress update
                 postMessage({
                     type: 'progress',
@@ -161,98 +158,6 @@ async function sendPredictions() {
         predictions.dispose();
     } catch (error) {
         console.warn('Error in sendPredictions:', error);
-    }
-}
-
-async function sendActivations(inputSample: tf.Tensor) {
-    // Check if model exists
-    if (!model) return;
-
-    const layerActivations: any[] = [];
-    
-    try {
-        // Get activations from each layer
-        for (let i = 0; i < model.layers.length; i++) {
-            const layer = model.layers[i];
-            
-            // Create a temporary model to get layer activations
-            let layerModel: tf.LayersModel | null = null;
-            let activation: tf.Tensor | null = null;
-            
-            try {
-                layerModel = tf.model({
-                    inputs: model.input,
-                    outputs: layer.output
-                });
-                
-                activation = layerModel.predict(inputSample) as tf.Tensor;
-                const activationArray = await activation.data();
-                
-                layerActivations.push({
-                    layerId: `layer-${i}`,
-                    layerName: layer.name || `Layer ${i + 1}`,
-                    activations: Array.from(activationArray),
-                    gradients: [], // Would need custom training loop for gradients
-                });
-            } catch (error) {
-                console.warn(`Failed to extract activations for layer ${i}:`, error);
-                // Continue with next layer
-            } finally {
-                // Clean up resources
-                if (activation && !activation.isDisposed) {
-                    activation.dispose();
-                }
-                if (layerModel) {
-                    try {
-                        layerModel.dispose();
-                    } catch (disposeError) {
-                        console.warn('Error disposing layerModel:', disposeError);
-                    }
-                }
-            }
-        }
-
-        if (layerActivations.length > 0) {
-            postMessage({
-                type: 'activations',
-                payload: layerActivations
-            } as TrainingResponse);
-        }
-    } catch (error) {
-        console.warn('Error in sendActivations:', error);
-    }
-}
-
-async function sendWeights() {
-    if (!model) return;
-
-    try {
-        const weightsData: any[] = [];
-        
-        model.layers.forEach((layer, index) => {
-            try {
-                const weights = layer.getWeights();
-                if (weights.length > 0) {
-                    const weightArrays = weights.map(w => Array.from(w.dataSync()));
-                    weightsData.push({
-                        layerId: `layer-${index}`,
-                        weights: weightArrays[0], // Main weights
-                        biases: weightArrays[1] || null, // Biases if present
-                    });
-                }
-            } catch (layerError) {
-                console.warn(`Error getting weights for layer ${index}:`, layerError);
-            }
-        });
-
-        if (weightsData.length > 0) {
-            postMessage({
-                type: 'weights',
-                payload: weightsData
-            } as TrainingResponse);
-        }
-    } catch (error) {
-        console.warn('Error in sendWeights:', error);
     }
 }
 
@@ -443,7 +348,6 @@ self.onmessage = async (event: MessageEvent<TrainingMessage>) => {
                 isTraining = false;
                 isPaused = false;
                 currentEpoch = 0;
-                currentBatch = 0;
                 
                 // Clean disposal since we're using fresh workers
                 if (model) {

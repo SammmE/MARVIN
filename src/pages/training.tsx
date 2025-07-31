@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { TrainingControls } from "../components/training-controls";
 import { LiveMetricsChart } from "../components/live-metrics-chart";
 import { ActivationPanelGrid } from "../components/activation-mini-panels";
@@ -55,7 +55,6 @@ export default function TrainingPage() {
         setSpeed,
         startTraining,
         pauseTraining,
-        resumeTraining,
         stopTraining,
         stepBatch,
         stepEpoch,
@@ -96,9 +95,6 @@ export default function TrainingPage() {
     const handleAutofix = () => {
         if (errorType === 'shape_mismatch' && dataset) {
             console.log('Applying autofix for shape mismatch...');
-
-            // Extract expected and actual shapes from error message
-            const errorMessage = lastError || '';
 
             // Parse the error to understand the shape mismatch
             let targetShape = 1; // Default to 1 for regression
