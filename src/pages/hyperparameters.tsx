@@ -9,9 +9,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { PlusCircle } from "lucide-react";
+import { PlusCircle, Trash2 } from "lucide-react";
 import { LayerCard } from "@/components/layer-card";
-import { useHyperparametersStore } from "@/lib/hyperparameters-store";
+import { useHyperparametersStore } from "@/lib/oscar-store";
 import { ShadcnActivationFunctionGraph } from "@/components/shadcn-activation-function-graph";
 
 export default function HyperparametersPage() {
@@ -29,6 +29,7 @@ export default function HyperparametersPage() {
         setBatchSize,
         setEpochs,
         setOptimizer,
+        resetHyperparameters,
     } = useHyperparametersStore();
 
     // Define built-in activation functions
@@ -45,6 +46,10 @@ export default function HyperparametersPage() {
             {
                 name: "Tanh",
                 code: "function Tanh(x) {\n  return Math.tanh(x);\n}"
+            },
+            {
+                name: "Linear",
+                code: "function Linear(x) {\n  return x;\n}"
             }
         ];
     };
@@ -61,10 +66,10 @@ export default function HyperparametersPage() {
         // Add global custom functions
         globalCustomFunctions.forEach(func => {
             // Check if this function is selected in any layer
-            const isSelected = layers.some(layer => 
+            const isSelected = layers.some(layer =>
                 layer.activation === "Custom" && layer.selectedCustomFunction === func.name
             );
-            
+
             functionMap.set(func.name, {
                 ...func,
                 selected: isSelected
@@ -111,7 +116,17 @@ export default function HyperparametersPage() {
 
     return (
         <div className="container mx-auto py-6">
-            <h1 className="text-3xl font-bold mb-6">Model Hyperparameters</h1>
+            <div className="flex items-center justify-between mb-6">
+                <h1 className="text-3xl font-bold">Model Hyperparameters</h1>
+                <Button
+                    variant="outline"
+                    onClick={resetHyperparameters}
+                    className="flex items-center gap-2"
+                >
+                    <Trash2 className="h-4 w-4" />
+                    Reset Hyperparameters
+                </Button>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 {/* Model Statistics */}

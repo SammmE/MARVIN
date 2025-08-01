@@ -330,6 +330,38 @@ self.onmessage = async (event: MessageEvent<TrainingMessage>) => {
                 break;
 
             case 'start':
+                // Handle configuration within the start message
+                if (payload) {
+                    console.log("Worker received start with config payload");
+                    config = payload;
+                    
+                    // Prepare training data
+                    if (config) {
+                        console.log("Preparing training data...");
+                        const { xs: xsData, ys: ysData, validationSplit } = config.dataConfig;
+                        const xs = tf.tensor2d(xsData);
+                        const ys = tf.tensor2d(ysData);
+                        
+                        if (validationSplit && validationSplit > 0) {
+                            const splitIndex = Math.floor(xsData.length * (1 - validationSplit));
+                            trainingData = {
+                                xs: xs.slice([0, 0], [splitIndex, -1]),
+                                ys: ys.slice([0, 0], [splitIndex, -1])
+                            };
+                            validationData = {
+                                xs: xs.slice([splitIndex, 0], [-1, -1]),
+                                ys: ys.slice([splitIndex, 0], [-1, -1])
+                            };
+                        } else {
+                            trainingData = { xs, ys };
+                        }
+                        
+                        // Dispose the original tensors since we've sliced them
+                        xs.dispose();
+                        ys.dispose();
+                        console.log("Training data prepared successfully");
+                    }
+                }
                 await startTraining();
                 break;
 

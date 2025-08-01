@@ -9,7 +9,7 @@ import {
     Legend,
     ResponsiveContainer,
 } from "recharts";
-import { useModelStore } from "../lib/model-store";
+import { useModelStore } from "../lib/oscar-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { cn } from "../lib/utils";
 

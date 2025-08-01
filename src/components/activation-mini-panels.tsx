@@ -3,15 +3,7 @@ import { BarChart, Bar, ResponsiveContainer, Cell } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Activity } from "lucide-react";
-
-export interface LayerActivationData {
-    layerId: string;
-    layerName: string;
-    activations: number[];
-    gradients?: number[];
-    weights?: number[][];
-    biases?: number[];
-}
+import type { LayerActivationData } from "../lib/oscar-store";
 
 interface ActivationMiniPanelProps {
     data: LayerActivationData;

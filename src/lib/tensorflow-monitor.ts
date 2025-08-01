@@ -1,5 +1,5 @@
 import * as tf from "@tensorflow/tfjs";
-import { useModelStore } from "./model-store";
+import { useOscarStore, type LayerVisualization } from "./oscar-store";
 import React from "react";
 
 export interface ModelTrainingConfig {
@@ -21,13 +21,15 @@ export interface ModelTrainingConfig {
 }
 
 export class TensorFlowModelMonitor {
-	private storeActions: ReturnType<typeof useModelStore.getState>;
+	private storeActions: ReturnType<typeof useOscarStore.getState>;
 	private updateIntervalId: number | null = null;
 	private isMonitoring = false;
+	private isGettingActivations = false;
+	private currentModel: tf.Sequential | null = null;
 
 	constructor() {
 		// Get store actions
-		this.storeActions = useModelStore.getState();
+		this.storeActions = useOscarStore.getState();
 	}
 
 	// Initialize the monitor with a model
@@ -39,7 +41,13 @@ export class TensorFlowModelMonitor {
 		});
 
 		// Get fresh store reference each time
-		this.storeActions = useModelStore.getState();
+		this.storeActions = useOscarStore.getState();
+		
+		// Don't clear previous layers on initialization - preserve them for visualization
+		// This allows the network visualization to continue showing layers even during monitor transitions
+		
+		// Store reference to current model
+		this.currentModel = model;
 		
 		this.storeActions.setModel(model);
 		console.log("Model set in store");
@@ -59,6 +67,9 @@ export class TensorFlowModelMonitor {
 	private extractModelLayers(model: tf.Sequential): void {
 		console.log("Extracting model layers:", model.layers.length);
 		
+		// First, create the layer structure
+		const layerVisualizations: LayerVisualization[] = [];
+		
 		model.layers.forEach((layer: tf.layers.Layer, index: number) => {
 			const layerId = `layer-${index}`;
 			console.log(`Processing layer ${index}:`, {
@@ -68,8 +79,25 @@ export class TensorFlowModelMonitor {
 				outputShape: layer.outputShape
 			});
 
-			// Initialize layer visualization data
-			this.storeActions.updateLayerActivations(layerId, []);
+			// Create initial layer visualization object
+			const layerViz: LayerVisualization = {
+				id: layerId,
+				name: layer.name,
+				type: layer.getClassName(),
+				activations: [],
+				shape: layer.outputShape as number[],
+				position: { x: index * 200, y: 50 },
+				isInput: index === 0,
+				isOutput: index === model.layers.length - 1,
+				stats: {
+					mean: 0,
+					max: 0,
+					min: 0,
+					std: 0
+				}
+			};
+
+			layerVisualizations.push(layerViz);
 
 			// Extract weights if available, with safety check for disposed layers
 			try {
@@ -79,7 +107,10 @@ export class TensorFlowModelMonitor {
 					const weightMatrix = weights[0].arraySync() as number[][];
 					const biases =
 						weights.length > 1 ? (weights[1].arraySync() as number[]) : undefined;
-					this.storeActions.updateLayerWeights(layerId, weightMatrix, biases);
+					
+					// Update the layer with weights
+					layerViz.weights = weightMatrix;
+					layerViz.biases = biases;
 				} else {
 					console.log(`Layer ${index} has no weights yet`);
 				}
@@ -89,6 +120,9 @@ export class TensorFlowModelMonitor {
 			}
 		});
 		
+		// Set all layers at once
+		this.storeActions.setLayers(layerVisualizations);
+		
 		console.log("Model layer extraction completed");
 	}
 
@@ -97,7 +131,7 @@ export class TensorFlowModelMonitor {
 		if (this.isMonitoring) return;
 
 		this.isMonitoring = true;
-		const store = useModelStore.getState();
+		const store = useOscarStore.getState();
 		const { updateInterval, liveUpdateEnabled } = store;
 
 		if (liveUpdateEnabled) {
@@ -118,7 +152,7 @@ export class TensorFlowModelMonitor {
 
 	// Update visualization with current model state
 	private updateVisualization(): void {
-		const store = useModelStore.getState();
+		const store = useOscarStore.getState();
 		const { model } = store;
 		if (!model) return;
 
@@ -137,19 +171,77 @@ export class TensorFlowModelMonitor {
 		});
 	}
 
+	// Helper method to safely check if a layer is disposed
+	private isLayerDisposed(layer: tf.layers.Layer): boolean {
+		try {
+			// Try to access a property that would throw if disposed
+			layer.name; // Just access the property without assigning
+			return false;
+		} catch (error) {
+			const errorMessage = (error as Error).message;
+			return errorMessage.includes('disposed') || errorMessage.includes('already disposed');
+		}
+	}
+
+	// Helper method to safely check if a model is disposed
+	private isModelDisposed(model: tf.Sequential): boolean {
+		try {
+			// Try to access model properties that would throw if disposed
+			model.layers.length; // Just access the property without assigning
+			return false;
+		} catch (error) {
+			const errorMessage = (error as Error).message;
+			return errorMessage.includes('disposed') || errorMessage.includes('already disposed');
+		}
+	}
+
 	// Get activations for a given input
 	async getLayerActivations(input: tf.Tensor): Promise<void> {
-		const store = useModelStore.getState();
-		const { model } = store;
-		if (!model) return;
+		// Prevent concurrent calls
+		if (this.isGettingActivations) {
+			console.log("Already getting activations, skipping...");
+			return;
+		}
+
+		this.isGettingActivations = true;
 
 		try {
+			const store = useOscarStore.getState();
+			const { model } = store;
+			if (!model) {
+				console.log("No model in store, skipping activation retrieval");
+				return;
+			}
+
+			// Check if this is still the same model we initialized with
+			if (model !== this.currentModel) {
+				console.warn("Model has changed since initialization, skipping activation retrieval");
+				return;
+			}
+
+			// Check if model is disposed before proceeding
+			if (this.isModelDisposed(model)) {
+				console.warn("Model is disposed, skipping activation retrieval");
+				return;
+			}
+
+			// Try to access model layers to check if model is still valid
+			if (!model.layers || model.layers.length === 0) {
+				console.warn("Model has no layers, skipping activation retrieval");
+				return;
+			}
+
 			// First, compile the model if not already compiled
 			if (!model.optimizer) {
-				model.compile({
-					optimizer: 'adam',
-					loss: 'meanSquaredError'
-				});
+				try {
+					model.compile({
+						optimizer: 'adam',
+						loss: 'meanSquaredError'
+					});
+				} catch (compileError) {
+					console.warn("Could not compile model, it may be disposed:", compileError);
+					return;
+				}
 			}
 
 			// Get predictions for each layer
@@ -157,10 +249,29 @@ export class TensorFlowModelMonitor {
 				const layerId = `layer-${i}`;
 
 				try {
+					// Double-check model hasn't been disposed during the loop
+					if (this.isModelDisposed(model)) {
+						console.warn(`Model was disposed during layer iteration at layer ${i}, stopping`);
+						break;
+					}
+
+					// Check if the layer still exists and is valid
+					const layer = model.layers[i];
+					if (!layer || !layer.output) {
+						console.warn(`Layer ${i} is invalid, skipping activation`);
+						continue;
+					}
+
+					// Check if the specific layer is disposed
+					if (this.isLayerDisposed(layer)) {
+						console.warn(`Layer ${i} is disposed, skipping activation`);
+						continue;
+					}
+
 					// Create intermediate model to get layer output
 					const intermediateModel = tf.model({
 						inputs: model.inputs,
-						outputs: model.layers[i].output,
+						outputs: layer.output,
 					});
 
 					const activation = intermediateModel.predict(input) as tf.Tensor;
@@ -187,17 +298,43 @@ export class TensorFlowModelMonitor {
 					activation.dispose();
 					intermediateModel.dispose();
 				} catch (error) {
+					const errorMessage = (error as Error).message;
+					
+					// Check if this is a disposal error
+					if (errorMessage.includes('disposed') || errorMessage.includes('already disposed')) {
+						console.warn(`Layer ${i} was disposed during activation retrieval, stopping layer iteration`);
+						// If any layer is disposed, likely the whole model is disposed, so break
+						break;
+					}
+					
 					console.warn(`Could not get activations for layer ${i}:`, error);
-					// Create dummy activation data as fallback
-					const outputShape = model.layers[i].outputShape as number[];
-					const dummyData = outputShape.length > 1 
-						? [new Array(outputShape[outputShape.length - 1]).fill(0)]
-						: [[0]];
-					this.storeActions.updateLayerActivations(layerId, dummyData);
+					// Create dummy activation data as fallback for non-disposal errors
+					try {
+						const layer = model.layers[i];
+						if (layer && !this.isLayerDisposed(layer)) {
+							const outputShape = layer.outputShape as number[];
+							const dummyData = outputShape.length > 1 
+								? [new Array(outputShape[outputShape.length - 1]).fill(0)]
+								: [[0]];
+							this.storeActions.updateLayerActivations(layerId, dummyData);
+						}
+					} catch (shapeError) {
+						// If we can't even get the output shape, skip this layer
+						console.warn(`Could not get shape for layer ${i}, skipping:`, shapeError);
+					}
 				}
 			}
 		} catch (error) {
-			console.error("Error getting layer activations:", error);
+			const errorMessage = (error as Error).message;
+			
+			// Check if this is a disposal error at the model level
+			if (errorMessage.includes('disposed') || errorMessage.includes('already disposed')) {
+				console.warn("Model was disposed during activation retrieval, operation aborted");
+			} else {
+				console.error("Error getting layer activations:", error);
+			}
+		} finally {
+			this.isGettingActivations = false;
 		}
 		
 		// Always trigger visualization update after getting activations
@@ -310,7 +447,7 @@ export class TensorFlowModelMonitor {
 
 	// Predict and visualize activations
 	async predict(input: tf.Tensor): Promise<tf.Tensor> {
-		const store = useModelStore.getState();
+		const store = useOscarStore.getState();
 		const { model } = store;
 		if (!model) {
 			throw new Error("No model available for prediction");
@@ -377,8 +514,13 @@ export class TensorFlowModelMonitor {
 
 	// Dispose of resources
 	dispose(): void {
+		console.log("TensorFlowModelMonitor.dispose called - preserving layer visualizations");
 		this.stopMonitoring();
-		const store = useModelStore.getState();
+		
+		// Clear the current model reference
+		this.currentModel = null;
+		
+		const store = useOscarStore.getState();
 		const { model } = store;
 		if (model) {
 			try {
@@ -386,11 +528,15 @@ export class TensorFlowModelMonitor {
 				// TensorFlow models don't have a clean way to check disposal state,
 				// so we just handle the error gracefully
 				model.dispose();
+				console.log("Model disposed successfully");
 			} catch (error) {
 				// Silently handle disposal errors as they're common during cleanup
 				console.debug("Model disposal handled:", (error as Error).message);
 			}
-			this.storeActions.resetModel();
+			
+			// Only clear the model reference, preserve layers for visualization
+			this.storeActions.setModel(null);
+			console.log("Model reference cleared, layer visualizations preserved");
 		}
 	}
 }

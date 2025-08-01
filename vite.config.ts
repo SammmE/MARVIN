@@ -11,5 +11,8 @@ export default defineConfig({
 			"@": path.resolve(__dirname, "./src"),
 		},
 	},
+	worker: {
+		format: 'es'
+	},
     base: process.env.NODE_ENV === "production" ? "/oscar/" : "/",
 });
