@@ -3,19 +3,8 @@ import { Button } from "./ui/button";
 import { Slider } from "./ui/slider";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { Play, Pause, Square, SkipForward, StepForward } from "lucide-react";
-
-export type TrainingState = "idle" | "training" | "paused" | "stopped";
-export type TrainingSpeed = number; // 0 = manual, 1 = real-time, up to 10 = 10x speed
-
-export interface MetricData {
-    epoch: number;
-    loss: number;
-    accuracy?: number;
-    valLoss?: number;
-    valAccuracy?: number;
-    timestamp: number;
-}
+import { Play, Pause, Square, SkipForward, StepForward, RotateCcw } from "lucide-react";
+import type { TrainingState, TrainingSpeed, MetricData } from "../lib/oscar-store";
 
 interface TrainingControlsProps {
     trainingState: TrainingState;
@@ -28,6 +17,7 @@ interface TrainingControlsProps {
     onStart: () => void;
     onPause: () => void;
     onStop: () => void;
+    onReset: () => void;
     onSpeedChange: (speed: TrainingSpeed) => void;
     onNextBatch: () => void;
     onNextEpoch: () => void;
@@ -46,6 +36,7 @@ export const TrainingControls: React.FC<TrainingControlsProps> = ({
     onStart,
     onPause,
     onStop,
+    onReset,
     onSpeedChange,
     onNextBatch,
     onNextEpoch,
@@ -56,6 +47,7 @@ export const TrainingControls: React.FC<TrainingControlsProps> = ({
 
     const isTraining = trainingState === "training";
     const isPaused = trainingState === "paused";
+    const isCompleted = trainingState === "completed";
     const isManualMode = speed === 0;
 
     // Use training metrics to determine actual completed epochs
@@ -93,28 +85,40 @@ export const TrainingControls: React.FC<TrainingControlsProps> = ({
             <CardContent className="space-y-6">
                 {/* Main Controls */}
                 <div className="flex items-center gap-3">
-                    <Button
-                        onClick={isTraining ? onPause : onStart}
-                        disabled={trainingState === "stopped"}
-                        className="flex-1"
-                        size="lg"
-                    >
-                        {isTraining ? (
-                            <>
-                                <Pause className="mr-2 h-4 w-4" />
-                                Pause
-                            </>
-                        ) : (
-                            <>
-                                <Play className="mr-2 h-4 w-4" />
-                                {isPaused ? "Resume" : "Start Training"}
-                            </>
-                        )}
-                    </Button>
+                    {isCompleted ? (
+                        <Button
+                            onClick={onReset}
+                            className="flex-1"
+                            size="lg"
+                            variant="outline"
+                        >
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                            New Training
+                        </Button>
+                    ) : (
+                        <Button
+                            onClick={isTraining ? onPause : onStart}
+                            disabled={trainingState === "stopped"}
+                            className="flex-1"
+                            size="lg"
+                        >
+                            {isTraining ? (
+                                <>
+                                    <Pause className="mr-2 h-4 w-4" />
+                                    Pause
+                                </>
+                            ) : (
+                                <>
+                                    <Play className="mr-2 h-4 w-4" />
+                                    {isPaused ? "Resume" : "Start Training"}
+                                </>
+                            )}
+                        </Button>
+                    )}
                     <Button
                         onClick={onStop}
                         variant="destructive"
-                        disabled={trainingState === "idle" || trainingState === "stopped"}
+                        disabled={trainingState === "idle" || trainingState === "stopped" || isCompleted}
                     >
                         <Square className="mr-2 h-4 w-4" />
                         Stop

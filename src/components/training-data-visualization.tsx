@@ -36,31 +36,115 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
 
     // Prepare data for visualization
     const chartData = useMemo(() => {
-        const mappedData = data.map((point) => {
-            // Find matching prediction by input value (more reliable than index)
-            const matchingPrediction = modelPredictions.find(pred =>
-                Math.abs(pred.x - point.x) < 0.001
-            );
+        // For regression, create a dense set of prediction points to ensure smooth line
+        if (problemType === "regression" && modelPredictions.length > 0) {
+            // Get the range of input values
+            const xValues = data.map(d => d.x).sort((a, b) => a - b);
+            const minX = Math.min(...xValues);
+            const maxX = Math.max(...xValues);
 
-            return {
-                ...point,
-                prediction: matchingPrediction?.y || matchingPrediction?.prediction || null,
-                residual: matchingPrediction ?
-                    Math.abs(point.y - (matchingPrediction.y || matchingPrediction.prediction || 0)) : null
-            };
-        });
+            // Create a denser set of points for smooth regression line
+            const densePredictionPoints = [];
+            const numPoints = 100; // Generate 100 points for smooth line
 
-        // Sort by x value for proper line connection
-        const sortedData = mappedData.sort((a, b) => a.x - b.x);
+            for (let i = 0; i <= numPoints; i++) {
+                const x = minX + (maxX - minX) * (i / numPoints);
 
-        console.log('ChartData prepared:', {
-            dataLength: sortedData.length,
-            sampledData: sortedData.slice(0, 3),
-            predictionValues: sortedData.map(d => d.prediction).filter(p => p !== null).slice(0, 5)
-        });
+                // Find the closest predictions to interpolate between
+                const sortedPredictions = modelPredictions
+                    .filter(pred => pred.x !== undefined && pred.y !== undefined)
+                    .sort((a, b) => a.x - b.x);
 
-        return sortedData;
-    }, [data, modelPredictions]);
+                if (sortedPredictions.length > 0) {
+                    let interpolatedY;
+
+                    if (x <= sortedPredictions[0].x) {
+                        // Use first prediction for values before the range
+                        interpolatedY = sortedPredictions[0].y || sortedPredictions[0].prediction;
+                    } else if (x >= sortedPredictions[sortedPredictions.length - 1].x) {
+                        // Use last prediction for values after the range
+                        interpolatedY = sortedPredictions[sortedPredictions.length - 1].y || sortedPredictions[sortedPredictions.length - 1].prediction;
+                    } else {
+                        // Interpolate between two nearest points
+                        for (let j = 0; j < sortedPredictions.length - 1; j++) {
+                            const pred1 = sortedPredictions[j];
+                            const pred2 = sortedPredictions[j + 1];
+
+                            if (x >= pred1.x && x <= pred2.x) {
+                                const ratio = (x - pred1.x) / (pred2.x - pred1.x);
+                                const y1 = pred1.y || pred1.prediction || 0;
+                                const y2 = pred2.y || pred2.prediction || 0;
+                                interpolatedY = y1 + ratio * (y2 - y1);
+                                break;
+                            }
+                        }
+                    }
+
+                    if (interpolatedY !== undefined) {
+                        densePredictionPoints.push({
+                            x,
+                            y: null, // No actual data at this point
+                            prediction: interpolatedY,
+                            residual: null
+                        });
+                    }
+                }
+            }
+
+            // Combine actual data points with dense prediction points
+            const actualDataPoints = data.map((point) => {
+                // Find matching prediction by input value (more reliable than index)
+                const matchingPrediction = modelPredictions.find(pred =>
+                    Math.abs(pred.x - point.x) < 0.001
+                );
+
+                return {
+                    ...point,
+                    prediction: matchingPrediction?.y || matchingPrediction?.prediction || null,
+                    residual: matchingPrediction ?
+                        Math.abs(point.y - (matchingPrediction.y || matchingPrediction.prediction || 0)) : null
+                };
+            });
+
+            // Combine and sort all points
+            const allPoints = [...actualDataPoints, ...densePredictionPoints].sort((a, b) => a.x - b.x);
+
+            console.log('Dense chartData prepared for regression:', {
+                actualDataPoints: actualDataPoints.length,
+                densePredictionPoints: densePredictionPoints.length,
+                totalPoints: allPoints.length,
+                samplePredictions: allPoints.filter(p => p.prediction !== null).slice(0, 5)
+            });
+
+            return allPoints;
+        } else {
+            // For classification or when no predictions, use original logic
+            const mappedData = data.map((point) => {
+                // Find matching prediction by input value (more reliable than index)
+                const matchingPrediction = modelPredictions.find(pred =>
+                    Math.abs(pred.x - point.x) < 0.001
+                );
+
+                return {
+                    ...point,
+                    prediction: matchingPrediction?.y || matchingPrediction?.prediction || null,
+                    residual: matchingPrediction ?
+                        Math.abs(point.y - (matchingPrediction.y || matchingPrediction.prediction || 0)) : null
+                };
+            });
+
+            // Sort by x value for proper line connection
+            const sortedData = mappedData.sort((a, b) => a.x - b.x);
+
+            console.log('ChartData prepared for classification:', {
+                dataLength: sortedData.length,
+                sampledData: sortedData.slice(0, 3),
+                predictionValues: sortedData.map(d => d.prediction).filter(p => p !== null).slice(0, 5)
+            });
+
+            return sortedData;
+        }
+    }, [data, modelPredictions, problemType]);
 
     // Determine if we have classification data with distinct classes
     const classGroups = useMemo(() => {
@@ -147,6 +231,7 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
 
                                 {/* Actual data points */}
                                 <Scatter
+                                    data={chartData.filter(d => d.y !== null)}
                                     dataKey="y"
                                     fill="#3b82f6"
                                     name="Training Data"
@@ -161,7 +246,8 @@ export const TrainingDataVisualization: React.FC<TrainingDataVisualizationProps>
                                         strokeWidth={2}
                                         dot={false}
                                         name="Model Prediction"
-                                        connectNulls={false}
+                                        connectNulls={true}
+                                        isAnimationActive={false}
                                     />
                                 )}
                             </ComposedChart>

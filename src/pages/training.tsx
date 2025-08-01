@@ -3,15 +3,15 @@ import { TrainingControls } from "../components/training-controls";
 import { LiveMetricsChart } from "../components/live-metrics-chart";
 import { ActivationPanelGrid } from "../components/activation-mini-panels";
 import { TrainingDataVisualization } from "../components/training-data-visualization";
-import { useTrainingStore } from "../lib/training-store";
-import { useDataStore } from "../lib/data-store";
-import { useHyperparametersStore } from "../lib/hyperparameters-store";
+import { useTrainingStore } from "../lib/oscar-store";
+import { useDataStore } from "../lib/oscar-store";
+import { useHyperparametersStore } from "../lib/oscar-store";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
-import { AlertCircle, Brain, BarChart3, Activity, Wrench } from "lucide-react";
+import { AlertCircle, Brain, BarChart3, Activity, Wrench, Trash2 } from "lucide-react";
 
 // Generate sample training data
 const generateSampleData = (problemType: "regression" | "classification", numPoints: number = 100) => {
@@ -56,6 +56,7 @@ export default function TrainingPage() {
         startTraining,
         pauseTraining,
         stopTraining,
+        resetTraining,
         stepBatch,
         stepEpoch,
         scrubToEpoch,
@@ -69,6 +70,7 @@ export default function TrainingPage() {
 
     // Get data from the data store
     const dataStore = useDataStore();
+    const { clearAllData } = dataStore;
 
     // Get hyperparameters from the hyperparameters store
     const {
@@ -445,6 +447,17 @@ export default function TrainingPage() {
                         Train your neural network with real-time visualization and controls
                     </p>
                 </div>
+
+                <div className="flex gap-2">
+                    <Button
+                        onClick={clearAllData}
+                        variant="outline"
+                        className="flex items-center gap-2"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                        Clear All
+                    </Button>
+                </div>
             </div>
 
             {!worker && (
@@ -470,6 +483,7 @@ export default function TrainingPage() {
                         onStart={startTraining}
                         onPause={pauseTraining}
                         onStop={stopTraining}
+                        onReset={resetTraining}
                         onSpeedChange={setSpeed}
                         onNextBatch={stepBatch}
                         onNextEpoch={stepEpoch}

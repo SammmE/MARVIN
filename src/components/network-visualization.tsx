@@ -18,7 +18,7 @@ import type {
     NodeTypes,
     EdgeTypes,
 } from "@xyflow/react";
-import { useModelStore, type LayerNode as LayerNodeType, type NeuronNode as NeuronNodeType } from "../lib/model-store";
+import { useModelStore, type LayerNode as LayerNodeType, type NeuronNode as NeuronNodeType } from "../lib/oscar-store";
 import { cn } from "../lib/utils";
 import { Button } from "./ui/button";
 import { Minimize, Eye, EyeOff } from "lucide-react";

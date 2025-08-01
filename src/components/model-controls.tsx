@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import html2canvas from "html2canvas";
-import { useModelStore, type ViewMode } from "../lib/model-store";
+import { useModelStore, type ViewMode } from "../lib/oscar-store";
 import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Slider } from "./ui/slider";

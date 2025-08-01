@@ -114,10 +114,11 @@ src/
 │   ├── network-*.tsx   # Network visualization components
 │   └── training-*.tsx  # Training control components
 ├── lib/                # Core logic and state management
-│   ├── data-store.ts   # Data management store
-│   ├── hyperparameters-store.ts # Network configuration store
-│   ├── model-store.ts  # Model visualization store
-│   ├── training-store.ts # Training state store
+│   ├── oscar-store.ts  # 🎯 UNIFIED STORE - All application state management
+│   ├── data-store.ts   # ⚠️ DEPRECATED - Use oscar-store.ts instead
+│   ├── hyperparameters-store.ts # ⚠️ DEPRECATED - Use oscar-store.ts instead
+│   ├── model-store.ts  # ⚠️ DEPRECATED - Use oscar-store.ts instead
+│   ├── training-store.ts # ⚠️ DEPRECATED - Use oscar-store.ts instead
 │   └── tensorflow-monitor.ts # TensorFlow.js integration
 ├── pages/              # Main application pages
 │   ├── data.tsx        # Data import and preview

@@ -2,14 +2,17 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { NetworkVisualization } from "../components/network-visualization";
 import { ModelControls } from "../components/model-controls";
 import { TrainingMetricsChart } from "../components/training-metrics-chart";
-import { useModelStore } from "../lib/model-store";
-import { useHyperparametersStore } from "../lib/hyperparameters-store";
+import { ShapeFixerDialog } from "../components/shape-fixer-dialog";
+import { useModelStore } from "../lib/oscar-store";
+import { useHyperparametersStore } from "../lib/oscar-store";
+import { useDataStore } from "../lib/oscar-store";
 import { TensorFlowModelMonitor } from "../lib/tensorflow-monitor";
+import { ShapeValidator, type ShapeValidationResult, type ShapeFix } from "../lib/shape-validator";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { Loader2, Play, Square } from "lucide-react";
+import { Loader2, Play, Square, Trash2 } from "lucide-react";
 import * as tf from "@tensorflow/tfjs";
 
 export default function ModelPage() {
@@ -17,14 +20,18 @@ export default function ModelPage() {
     const [monitor, setMonitor] = useState<TensorFlowModelMonitor | null>(null);
     const [isTrainingDemo, setIsTrainingDemo] = useState(false);
     const [demoModel, setDemoModel] = useState<tf.Sequential | null>(null);
+    const [shapeValidationResult, setShapeValidationResult] = useState<ShapeValidationResult | null>(null);
+    const [showShapeDialog, setShowShapeDialog] = useState(false);
 
-    const { model, isTraining, viewMode, layers } = useModelStore();
+    const { model, isTraining, viewMode, layers, resetModel } = useModelStore();
+    const { dataset } = useDataStore();
     const {
         layers: hyperparametersLayers,
         learningRate,
         batchSize,
         epochs,
-        optimizer
+        optimizer,
+        updateLayer
     } = useHyperparametersStore();
 
     // Debug hyperparameters
@@ -48,6 +55,8 @@ export default function ModelPage() {
                 return 'sigmoid';
             case 'Tanh':
                 return 'tanh';
+            case 'Linear':
+                return 'linear';
             case 'Custom':
                 // For now, fallback to relu for custom functions
                 // In a full implementation, you'd evaluate the custom function
@@ -57,7 +66,53 @@ export default function ModelPage() {
         }
     };
 
-    // Function to build model from hyperparameters
+    // Shape validation function
+    const validateModelShapes = useCallback((): boolean => {
+        if (!hyperparametersLayers || hyperparametersLayers.length === 0) {
+            return true; // No layers to validate
+        }
+
+        // Get input shape from dataset or use default
+        const inputShape = dataset ? ShapeValidator.getInputShapeFromData(dataset) : 784;
+
+        // For now, assume regression (1 output) unless we have classification data
+        const expectedOutputSize = 1; // This could be determined from dataset in the future
+
+        // Validate the layer configuration
+        const validationResult = ShapeValidator.validateModelShape(
+            hyperparametersLayers,
+            inputShape,
+            expectedOutputSize
+        );
+
+        if (!validationResult.isValid) {
+            setShapeValidationResult(validationResult);
+            setShowShapeDialog(true);
+            return false;
+        }
+
+        return true;
+    }, [hyperparametersLayers, dataset]);
+
+    // Handle applying shape fixes
+    const handleApplyShapeFixes = useCallback((fixes: ShapeFix[]) => {
+        const result = ShapeValidator.applySuggestionFixes(fixes);
+
+        if (result.layers) {
+            // Update all layers with the fixed configuration
+            result.layers.forEach((layer) => {
+                updateLayer(layer.id, layer);
+            });
+        }
+
+        // Reset validation state
+        setShapeValidationResult(null);
+    }, [updateLayer]);
+
+    // Handle dismissing shape validation
+    const handleDismissShapeValidation = useCallback(() => {
+        setShapeValidationResult(null);
+    }, []);
     const buildModelFromHyperparameters = useCallback((): tf.Sequential => {
         console.log("Building model from hyperparameters:", {
             layersCount: hyperparametersLayers?.length || 0,
@@ -189,6 +244,11 @@ export default function ModelPage() {
     const visualizeArchitecture = useCallback(async () => {
         if (!monitor) return;
 
+        // Validate shapes before building the model
+        if (!validateModelShapes()) {
+            return; // Shape validation dialog is shown, stop here
+        }
+
         try {
             // Dispose of previous demo model if it exists
             if (demoModel) {
@@ -198,6 +258,9 @@ export default function ModelPage() {
                     console.warn("Error disposing previous demo model:", error);
                 }
             }
+
+            // Small delay to ensure cleanup completes
+            await new Promise(resolve => setTimeout(resolve, 100));
 
             const userModel = buildModelFromHyperparameters();
 
@@ -236,7 +299,7 @@ export default function ModelPage() {
         } catch (error) {
             console.error("Failed to visualize architecture:", error);
         }
-    }, [monitor, buildModelFromHyperparameters]);
+    }, [monitor, buildModelFromHyperparameters, validateModelShapes]);
 
     // Auto-visualize architecture when component mounts or hyperparameters change
     useEffect(() => {
@@ -351,6 +414,17 @@ export default function ModelPage() {
                         <Button onClick={stopDemo} variant="destructive" className="flex items-center gap-2">
                             <Square className="h-4 w-4" />
                             Stop Training
+                        </Button>
+                    )}
+
+                    {(model || demoModel) && (
+                        <Button
+                            onClick={resetModel}
+                            variant="outline"
+                            className="flex items-center gap-2"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                            Clear Model
                         </Button>
                     )}
                 </div>
@@ -553,6 +627,17 @@ export default function ModelPage() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Shape Fixer Dialog */}
+            {shapeValidationResult && (
+                <ShapeFixerDialog
+                    open={showShapeDialog}
+                    onOpenChange={setShowShapeDialog}
+                    validationResult={shapeValidationResult}
+                    onApplyFixes={handleApplyShapeFixes}
+                    onDismiss={handleDismissShapeValidation}
+                />
+            )}
         </div>
     );
 }
